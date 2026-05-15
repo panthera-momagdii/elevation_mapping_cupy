@@ -42,6 +42,15 @@ def generate_launch_description():
         description='Use simulation clock if true'
     )
 
+    node_name_arg = DeclareLaunchArgument(
+        'node_name',
+        default_value='elevation_mapping_node',
+        description='Node name (override to run multiple instances, e.g. '
+                    'elevation_mapping_local / elevation_mapping_global). '
+                    'Param files used with a non-default name must use `/**:` '
+                    'as the top-level key.'
+    )
+
     # Get launch configurations
     robot_config = LaunchConfiguration('robot_config')
     robot_param_path = PathJoinSubstitution(
@@ -49,6 +58,7 @@ def generate_launch_description():
     launch_rviz = LaunchConfiguration('launch_rviz')
     rviz_config = LaunchConfiguration('rviz_config')
     use_sim_time = LaunchConfiguration('use_sim_time')
+    node_name = LaunchConfiguration('node_name')
 
     # Verify core config exists
     if not os.path.exists(core_param_path):
@@ -59,7 +69,7 @@ def generate_launch_description():
     elevation_mapping_node = Node(
         package=package_name,
         executable='elevation_mapping_node.py',
-        name='elevation_mapping_node',
+        name=node_name,
         output='screen',
         parameters=[
             core_param_path,
@@ -83,6 +93,7 @@ def generate_launch_description():
         launch_rviz_arg,
         rviz_config_arg,
         use_sim_time_arg,
+        node_name_arg,
         elevation_mapping_node,
         rviz_node
     ])

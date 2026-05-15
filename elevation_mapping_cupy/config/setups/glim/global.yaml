@@ -1,14 +1,23 @@
 /**:
   ros__parameters:
-    # GLIM with base_frame_id="" auto-picks the IMU frame as base_frame.
-    # For Ouster bags that's "os_sensor"; change here if your bag uses a
-    # different IMU header.frame_id (check with `ros2 topic echo /tf --once`).
-    map_frame: 'odom'
+    # Global elevation map: large, slow, fixed in GLIM's loop-closed `map` frame.
+    # Loop-closure jumps are tolerable here because the cells are coarse.
+    map_frame: 'map'
     base_frame: 'os_sensor'
-    corrected_map_frame: 'odom'
+    corrected_map_frame: 'map'
 
     initialize_frame_id: ['os_sensor']
     initialize_tf_offset: [0.0]
+
+    map_length: 100.0
+    resolution: 0.25
+
+    update_pose_fps: 2.0
+    update_variance_fps: 1.0
+    map_acquire_fps: 1.0
+    recordable_fps: 1.0
+
+    service_namespace: '/elevation_mapping_global'
 
     subscribers:
       lidar:
@@ -19,8 +28,8 @@
       elevation_map_raw:
         layers: ['elevation', 'traversability', 'variance']
         basic_layers: ['elevation']
-        fps: 5.0
+        fps: 1.0
       elevation_map_filter:
         layers: ['min_filter', 'smooth', 'inpaint', 'elevation']
         basic_layers: ['min_filter']
-        fps: 3.0
+        fps: 0.5

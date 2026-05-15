@@ -1,4 +1,4 @@
-/elevation_mapping_node:
+/**:
   ros__parameters:
     #### Basic parameters ########
     drift_compensation_variance_inlier: 0.1

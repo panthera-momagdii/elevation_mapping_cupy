@@ -1,14 +1,22 @@
 /**:
   ros__parameters:
-    # GLIM with base_frame_id="" auto-picks the IMU frame as base_frame.
-    # For Ouster bags that's "os_sensor"; change here if your bag uses a
-    # different IMU header.frame_id (check with `ros2 topic echo /tf --once`).
+    # Local elevation map: small, fast, robot-centric, fixed in odom (smooth).
     map_frame: 'odom'
     base_frame: 'os_sensor'
     corrected_map_frame: 'odom'
 
     initialize_frame_id: ['os_sensor']
     initialize_tf_offset: [0.0]
+
+    map_length: 20.0
+    resolution: 0.1
+
+    update_pose_fps: 10.0
+    update_variance_fps: 5.0
+    map_acquire_fps: 5.0
+    recordable_fps: 3.0
+
+    service_namespace: '/elevation_mapping_local'
 
     subscribers:
       lidar:
