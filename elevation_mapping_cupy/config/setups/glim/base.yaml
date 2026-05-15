@@ -1,20 +1,18 @@
 /elevation_mapping_node:
   ros__parameters:
-    # GLIM publishes TF: map -> odom -> base_frame  (and imu -> lidar).
-    # Use `odom` as the elevation map frame so loop-closure jumps in `map`
-    # don't tear the local map. Set base_frame to whatever GLIM resolves as
-    # base_frame_id (default: the IMU frame; set base_frame_id in
-    # config_ros.json to `base_link` for the cleaner option below).
+    # GLIM with base_frame_id="" auto-picks the IMU frame as base_frame.
+    # For Ouster bags that's "os_sensor"; change here if your bag uses a
+    # different IMU header.frame_id (check with `ros2 topic echo /tf --once`).
     map_frame: 'odom'
-    base_frame: 'base_link'
+    base_frame: 'os_sensor'
     corrected_map_frame: 'odom'
 
-    initialize_frame_id: ['base_link']
+    initialize_frame_id: ['os_sensor']
     initialize_tf_offset: [0.0]
 
     subscribers:
       lidar:
-        topic_name: '/os_cloud_node/points'   # same cloud GLIM consumes
+        topic_name: '/glim_ros/points'
         data_type: pointcloud
 
     publishers:

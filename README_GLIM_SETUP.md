@@ -209,6 +209,165 @@ pre-Blackwell stack, and we needed cupy 14 to get kernels for the RTX PRO
 | [elevation_mapping_cupy/config/setups/glim/base.yaml](elevation_mapping_cupy/config/setups/glim/base.yaml) | New: GLIM-tailored setup |
 | [README_GLIM_SETUP.md](README_GLIM_SETUP.md) | New: this document |
 
+## Integration issues we hit and how we fixed them
+
+A list of the actual bugs encountered while wiring this stack to GLIM on the
+Blackwell GPU, in the order they bit, plus the fix for each. These are
+**runtime / integration** issues — for build-time changes see
+[What's changed from upstream](#whats-changed-from-upstream).
+
+### 1. Cross-container DDS discovery failure
+
+**Symptom**: `ros2 topic list` from the elevation container didn't see GLIM's
+topics at all. Even after `--net=host`, nothing.
+
+**Root cause**: Fast DDS uses `/dev/shm`-backed shared memory transport for
+discovery and data, and needs `--ipc=host --pid=host` (not just `--net=host`)
+to negotiate it across containers. Reference: [Fast-DDS#2956](https://github.com/eProsima/Fast-DDS/issues/2956).
+
+**Fix**: Add all three flags to **both** containers:
+`--net=host --ipc=host --pid=host`. [`docker/run.sh`](docker/run.sh) does
+this for the elevation container; the GLIM `docker run` command in
+[Launch playbook](#launch-playbook) does it for GLIM.
+
+### 2. Topics visible but no data flowing
+
+**Symptom**: After fix #1, topic list was right, but `ros2 topic echo
+/os_cloud_node/points` hung forever.
+
+**Root cause**: `--ipc=host` enabled SHM discovery, but the SHM data plane
+still couldn't negotiate cleanly between the two containers (timing /
+namespace specifics).
+
+**Fix**: Disable SHM transport entirely and force UDP on both sides. We set
+`FASTDDS_BUILTIN_TRANSPORTS=UDPv4`:
+- elevation container: baked into [`docker/run.sh`](docker/run.sh)
+- GLIM container: pass `-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4` on the
+  `docker run` command
+
+### 3. `/os_cloud_node/points` was dead, `/glim_ros/map` was alive
+
+**Symptom**: After fix #2, `/glim_ros/*` topics flowed but `/os_cloud_node/*`
+didn't, even though both showed in `ros2 topic list`.
+
+**Root cause**: `glim_rosbag` reads the bag once and stops, so the
+bag-replayed `/os_cloud_node/points` topic ends — but GLIM keeps publishing
+its accumulated `/glim_ros/map` on a timer.
+
+**Fix**: Subscribe the elevation node to GLIM's deskewed cloud instead. In
+[`config/setups/glim/base.yaml`](elevation_mapping_cupy/config/setups/glim/base.yaml):
+
+```yaml
+subscribers:
+  lidar:
+    topic_name: '/glim_ros/points'
+    data_type: pointcloud
+```
+
+This is also better in principle: the cloud is already deskewed by GLIM and
+in a known frame.
+
+### 4. `CUDA_ERROR_NO_BINARY_FOR_GPU` (Blackwell)
+
+**Symptom**: Node crashed inside the first cupy kernel call with
+`no kernel image is available for execution on the device`.
+
+**Root cause**: cupy 13.x wheels predate Blackwell (sm_120) and ship no
+matching kernels.
+
+**Fix**: Use cupy 14 (Blackwell-capable). See the Dockerfile section in
+[What's changed from upstream](#whats-changed-from-upstream) for the
+numpy-2 cascade that this triggered.
+
+### 5. NVRTC: `incomplete type "float16"`
+
+**Symptom**: As soon as a real point cloud arrived, NVRTC compilation of
+the elevation kernels failed with ~50 errors of the form
+`error: incomplete type "float16" is not allowed`.
+
+**Root cause**: Upstream's CUDA preamble in
+[`kernels/custom_kernels.py`](elevation_mapping_cupy/elevation_mapping_cupy/kernels/custom_kernels.py)
+and [`kernels/kk.py`](elevation_mapping_cupy/elevation_mapping_cupy/kernels/kk.py)
+literally uses `float16` as a parameter type. cupy 14 forward-declares
+`float16` in `cupy/_core/include/cupy/carray.cuh` as a placeholder, and the
+type is never completed, so any function signature using it fails. We tried
+`#include <cuda_fp16.h>` — didn't help; the placeholder isn't `__half`.
+
+**Fix**: Replace every `float16` with `float` in the two kernel preambles —
+the actual map dtype is `np.float32` so the math is unchanged. See the
+patch in [`kernels/custom_kernels.py`](elevation_mapping_cupy/elevation_mapping_cupy/kernels/custom_kernels.py)
+and [`kernels/kk.py`](elevation_mapping_cupy/elevation_mapping_cupy/kernels/kk.py).
+
+After patching, clear cupy's compiled-kernel cache once so the failed
+compile isn't reused:
+```bash
+rm -rf ~/.cupy/kernel_cache
+```
+
+### 6. TF lookup failure: `Frame 'odom' or 'os_sensor' does not exist`
+
+**Symptom**: Kernel ran fine, no crash, but the elevation node logged
+`Frame 'odom' or 'os_sensor' does not exist` and never published a map.
+
+**Root cause**: With GLIM's `base_frame_id: ""` (default), GLIM auto-detects
+the IMU frame from the bag's IMU header and publishes `map -> odom -> <imu_frame>`.
+For your bag the auto-detected name wasn't `os_sensor`. Our config asked
+elevation_mapping to look up `odom -> os_sensor`, which doesn't exist.
+
+**Fix**: Two options —
+1. **Match the config to what GLIM publishes**: edit
+   [`config/setups/glim/base.yaml`](elevation_mapping_cupy/elevation_mapping_cupy/config/setups/glim/base.yaml)
+   and set `base_frame` to whichever IMU frame appears in
+   `ros2 topic echo /tf_static --once --qos-durability transient_local`.
+2. **Force GLIM's frame name**: set `"base_frame_id": "base_link"` in
+   `glim/config/config_ros.json` — only works if your bag also publishes a
+   static TF from `base_link` to the sensor frames; with a bare bag it
+   typically doesn't, so option 1 is safer.
+
+### 7. Workspace owned by root inside the container
+
+**Symptom**: `Permission denied: 'src/ros2_numpy'` from `vcs import` and
+`Permission denied: 'log'` from `colcon build`.
+
+**Root cause**: The host directory is root-owned; bind-mounted into the
+container, where we run as `ubuntu`.
+
+**Fix**: `docker/run.sh` chowns `/home/ubuntu/workspace` to `ubuntu` on
+container start. If you launched the container another way, run
+`sudo chown -R ubuntu:ubuntu ~/workspace` once.
+
+## Viewing traversability in RViz
+
+The default config publishes a multi-layer GridMap on
+`/elevation_mapping_node/elevation_map_raw` with layers `elevation`,
+`traversability`, `variance` (see the publisher block in
+[`config/setups/glim/base.yaml`](elevation_mapping_cupy/elevation_mapping_cupy/config/setups/glim/base.yaml)).
+
+To color by traversability in RViz:
+
+1. **Add** → **By topic** → expand `/elevation_mapping_node/elevation_map_raw`
+   → choose **GridMap**.
+2. In the new GridMap display, set:
+   - **Height Layer** = `elevation` (the surface still uses elevation for height)
+   - **Color Layer** = `traversability`
+   - **Color Transformer** = `IntensityLayer`
+   - **Min/Max** = `0.0` / `1.0`
+   - **Use rainbow** = on (or pick a colormap)
+3. Optionally add a **second** GridMap display on the same topic with
+   `Color Layer = elevation` so you can toggle between the two views.
+
+Save the config (File → Save Config As) so you don't redo this every
+launch.
+
+Quick sanity check that traversability is non-zero from the command line:
+```bash
+ros2 topic echo /elevation_mapping_node/elevation_map_raw --once \
+  | grep -E "name|traversability" | head
+```
+
+If the layer is all `nan` initially, that's normal — give the robot a few
+seconds of motion so the traversability filter has frames to score.
+
 ## Troubleshooting
 
 - **`PermissionError: 'log'` / `Permission denied: 'src/ros2_numpy'`** inside

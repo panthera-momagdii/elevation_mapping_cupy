@@ -30,6 +30,7 @@ docker run --rm -it \
   -e "XAUTHORITY=$XAUTH" \
   -e "QT_X11_NO_MITSHM=1" \
   -e "ROS_DOMAIN_ID=$ROS_DOMAIN_ID" \
+  -e "FASTDDS_BUILTIN_TRANSPORTS=UDPv4" \
   -v "$XSOCK":"$XSOCK":rw \
   -v "$XAUTH":"$XAUTH":rw \
   -v "$SRC_DIR":/home/ubuntu/workspace/src/elevation_mapping_cupy \
