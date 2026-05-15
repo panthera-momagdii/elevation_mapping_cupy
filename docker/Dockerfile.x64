@@ -73,9 +73,16 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN python3 -m pip install --no-cache-dir --break-system-packages -U --extra-index-url https://download.pytorch.org/whl/cu121 \
     torch torchvision torchaudio
 
-RUN python3 -m pip install --no-cache-dir --break-system-packages \
+RUN python3 -m pip install --no-cache-dir --break-system-packages --ignore-installed numpy \
     cupy-cuda12x \
     simple-parsing
+
+RUN python3 -m pip install --no-cache-dir --break-system-packages --ignore-installed \
+    scipy \
+    scikit-learn \
+    opencv-python-headless \
+    shapely \
+    transforms3d
 
 # Non-root user (so mounted workspaces behave).
 # NOTE: NVIDIA CUDA base images already ship with `ubuntu:1000:1000`.

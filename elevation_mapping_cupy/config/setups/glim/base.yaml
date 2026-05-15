@@ -1,0 +1,28 @@
+/elevation_mapping_node:
+  ros__parameters:
+    # GLIM publishes TF: map -> odom -> base_frame  (and imu -> lidar).
+    # Use `odom` as the elevation map frame so loop-closure jumps in `map`
+    # don't tear the local map. Set base_frame to whatever GLIM resolves as
+    # base_frame_id (default: the IMU frame; set base_frame_id in
+    # config_ros.json to `base_link` for the cleaner option below).
+    map_frame: 'odom'
+    base_frame: 'base_link'
+    corrected_map_frame: 'odom'
+
+    initialize_frame_id: ['base_link']
+    initialize_tf_offset: [0.0]
+
+    subscribers:
+      lidar:
+        topic_name: '/os_cloud_node/points'   # same cloud GLIM consumes
+        data_type: pointcloud
+
+    publishers:
+      elevation_map_raw:
+        layers: ['elevation', 'traversability', 'variance']
+        basic_layers: ['elevation']
+        fps: 5.0
+      elevation_map_filter:
+        layers: ['min_filter', 'smooth', 'inpaint', 'elevation']
+        basic_layers: ['min_filter']
+        fps: 3.0
