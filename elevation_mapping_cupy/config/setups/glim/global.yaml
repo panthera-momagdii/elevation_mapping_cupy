@@ -30,6 +30,6 @@
         basic_layers: ['elevation']
         fps: 1.0
       elevation_map_filter:
-        layers: ['min_filter', 'smooth', 'inpaint', 'elevation']
+        layers: ['min_filter', 'smooth', 'inpaint', 'elevation', 'traversability']
         basic_layers: ['min_filter']
         fps: 0.5
